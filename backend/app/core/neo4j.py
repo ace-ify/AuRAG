@@ -129,13 +129,47 @@ class ResilientNeo4jSession:
         self.close()
 
 
+def _get_neo4j_database() -> str | None:
+    """Replicate retrieval.index_chunks.get_database() without importing it."""
+    import os
+    db = os.environ.get("NEO4J_DATABASE")
+    if not db or db in ("neo4j", "None", ""):
+        user = os.environ.get("NEO4J_USERNAME")
+        if user and user != "neo4j":
+            return user
+        return None
+    return db
+
+
+_neo4j_driver = None
+
+
+def _get_neo4j_driver():
+    """Create Neo4j driver directly — avoids importing retrieval.index_chunks
+    which triggers a 30-50s sentence_transformers model load."""
+    global _neo4j_driver
+    if _neo4j_driver is None:
+        import os
+        try:
+            import truststore
+            truststore.inject_into_ssl()
+        except Exception:
+            pass
+        from neo4j import GraphDatabase
+        uri = os.environ.get("NEO4J_URI")
+        user = os.environ.get("NEO4J_USERNAME")
+        pwd = os.environ.get("NEO4J_PASSWORD")
+        if not all([uri, user, pwd]):
+            raise RuntimeError("Missing NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD")
+        _neo4j_driver = GraphDatabase.driver(uri, auth=(user, pwd), connection_timeout=5.0, max_connection_lifetime=300)
+    return _neo4j_driver
+
+
 def get_session():
     real_session = None
     try:
-        from retrieval.index_chunks import get_database, get_driver
-
-        driver = get_driver()
-        db = get_database()
+        driver = _get_neo4j_driver()
+        db = _get_neo4j_database()
         if db:
             real_session = driver.session(database=db)
         else:
@@ -151,4 +185,5 @@ def get_session():
         yield resilient
     finally:
         resilient.close()
+
 
