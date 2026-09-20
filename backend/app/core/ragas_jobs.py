@@ -59,7 +59,10 @@ def create_score_job(
 def _persist_result(score_id: str, update: dict, duration_ms: int) -> None:
     from retrieval.index_chunks import get_database, get_driver
 
-    with get_driver().session(database=get_database()) as session:
+    db = get_database()
+    driver = get_driver()
+    session = driver.session(database=db) if db else driver.session()
+    with session:
         update_evaluation(
             session,
             score_id,
@@ -70,6 +73,7 @@ def _persist_result(score_id: str, update: dict, duration_ms: int) -> None:
             completed_at=datetime.now(timezone.utc).isoformat(),
             detail=update.get("detail"),
         )
+
 
 
 def run_score_job(
