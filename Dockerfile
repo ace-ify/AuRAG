@@ -11,7 +11,8 @@ COPY requirements.lock ./
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip==26.1.1 \
-    && python -m pip install -r requirements.lock
+    && python -m pip install -r requirements.lock \
+    && python -m pip install "pyjwt>=2.8.0" "cryptography>=42.0.0"
 
 
 FROM python:3.12-slim-bookworm AS runtime

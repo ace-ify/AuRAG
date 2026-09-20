@@ -558,3 +558,7 @@ yarl==1.24.5
     # via aiohttp
 zstandard==0.25.0
     # via langsmith
+pyjwt>=2.8.0
+    # via -r backend/requirements.txt
+cryptography>=42.0.0
+    # via -r backend/requirements.txt
