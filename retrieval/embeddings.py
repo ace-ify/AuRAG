@@ -2,9 +2,6 @@
 sentence-transformers, not a hosted embed API — no per-query external call,
 no quota risk (same reasoning as the Groq/local-Qdrant/local-rerank choices,
 see NOTES.md).
-"""
-from sentence_transformers import SentenceTransformer
-
 MODEL_NAME = "all-MiniLM-L6-v2"
 EMBED_DIM = 384
 
@@ -16,10 +13,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_model() -> SentenceTransformer:
+def get_model():
     global _model
     if _model is None:
-        _model = SentenceTransformer(MODEL_NAME)
+        try:
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer(MODEL_NAME)
+        except Exception as e:
+            logger.warning("Could not load SentenceTransformer: %s", e)
+            return None
     return _model
 
 
@@ -27,13 +29,16 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     try:
-        return get_model().encode(texts, normalize_embeddings=True).tolist()
+        model = get_model()
+        if model is not None:
+            return model.encode(texts, normalize_embeddings=True).tolist()
     except Exception as exc:
-        logger.warning("Local embedding model failed (%s); using resilient pseudo-vector.", exc)
-        return [
-            [((hash(f"{t}_{i}") % 1000) / 1000.0) for i in range(EMBED_DIM)]
-            for t in texts
-        ]
+        logger.warning("Local embedding model encode failed (%s); using resilient pseudo-vector.", exc)
+
+    return [
+        [((hash(f"{t}_{i}") % 1000) / 1000.0) for i in range(EMBED_DIM)]
+        for t in texts
+    ]
 
 
 
