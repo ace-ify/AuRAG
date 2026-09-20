@@ -400,7 +400,7 @@ def answer(session, query: str, memory_context: list[str] | None = None) -> dict
         _REQUIREMENT_SYSTEM if _asks_for_requirement(query) else _SYSTEM,
         user_prompt,
         context_keys=[k for k, _ in items],
-        provider="gemini",
+        provider="groq",
     )
 
     return {

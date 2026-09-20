@@ -40,15 +40,25 @@ def answer_query(
     memory_context: list[str] | None = None,
     session_id: str | None = None,
 ) -> dict:
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
     from agents.supervisor import answer
 
-    return answer(
-        session,
-        query,
-        score=False,
-        memory_context=memory_context or [],
-        session_id=session_id,
-    )
+    def _run():
+        return answer(
+            session,
+            query,
+            score=False,
+            memory_context=memory_context or [],
+            session_id=session_id,
+        )
+
+    # Render's reverse proxy hard-kills at 30s; we must respond before that.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_run)
+        try:
+            return future.result(timeout=25.0)
+        except TimeoutError:
+            raise TimeoutError("Agent pipeline exceeded 25s budget")
 
 
 import logging

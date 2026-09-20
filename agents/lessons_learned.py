@@ -223,7 +223,7 @@ def answer(session, query: str, memory_context: list[str] | None = None) -> dict
         _SYSTEM,
         user_prompt,
         context_keys=[k for k, _ in items],
-        provider="gemini",
+        provider="groq",
     )
 
     return {
