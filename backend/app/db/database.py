@@ -10,7 +10,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SQLITE_PATH = REPO_ROOT / "aurag_enterprise.db"
+
+def get_default_sqlite_path() -> Path:
+    """Find the best writable location for SQLite in containerized environments."""
+    for candidate in [REPO_ROOT / ".runtime", REPO_ROOT / "data", REPO_ROOT, Path("/tmp")]:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            return candidate / "aurag_enterprise.db"
+        except Exception:
+            continue
+    return REPO_ROOT / "aurag_enterprise.db"
+
+DEFAULT_SQLITE_PATH = get_default_sqlite_path()
 
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")

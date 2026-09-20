@@ -44,7 +44,7 @@ COPY --chown=aurag:aurag retrieval retrieval
 COPY --chown=aurag:aurag telemetry telemetry
 
 RUN mkdir -p /app/data/incoming /app/.runtime/mem0 \
-    && chown -R aurag:aurag /app/data /app/.runtime
+    && chown -R aurag:aurag /app
 
 USER aurag
 
