@@ -20,6 +20,7 @@ coverage/
 .env
 .env.local
 *.env
+*.db
 
 # OS
 .DS_Store
@@ -29,3 +30,4 @@ Thumbs.db
 data/**/*.tmp
 *.log
 .runtime/
+.pytest_tmp/

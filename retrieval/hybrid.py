@@ -38,26 +38,43 @@ def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]
 
     candidates: dict[str, str] = {}
 
-    for key, text in _neo4j_vector_search(session, query_vec, _CANDIDATES_PER_SOURCE):
-        candidates[key] = text
+    try:
+        for key, text in _neo4j_vector_search(session, query_vec, _CANDIDATES_PER_SOURCE):
+            candidates[key] = text
+    except Exception:
+        pass
 
-    for key, text, _ in qdrant_store.search(query_vec, top_k=_CANDIDATES_PER_SOURCE):
-        candidates[key] = text
+    try:
+        for key, text, _ in qdrant_store.search(query_vec, top_k=_CANDIDATES_PER_SOURCE):
+            candidates[key] = text
+    except Exception:
+        pass
 
-    for key, text, _ in search_bm25(session, query, top_k=_CANDIDATES_PER_SOURCE):
-        candidates[key] = text
+    try:
+        for key, text, _ in search_bm25(session, query, top_k=_CANDIDATES_PER_SOURCE):
+            candidates[key] = text
+    except Exception:
+        pass
 
-    graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE)
-    for key, text in graph_candidates:
-        candidates[key] = text
+    graph_candidates = []
+    try:
+        graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE)
+        for key, text in graph_candidates:
+            candidates[key] = text
+    except Exception:
+        pass
 
-    known_tags, known_names = load_known_entities(session)
-    tags, names = extract_query_entities(query, known_tags, known_names)
-    candidates = filter_to_explicit_anchors(
-        candidates,
-        graph_candidates,
-        [*tags, *names],
-    )
+    try:
+        known_tags, known_names = load_known_entities(session)
+        tags, names = extract_query_entities(query, known_tags, known_names)
+        candidates = filter_to_explicit_anchors(
+            candidates,
+            graph_candidates,
+            [*tags, *names],
+        )
+    except Exception:
+        pass
+
     candidates = filter_to_explicit_years(candidates, query)
 
     if not candidates:

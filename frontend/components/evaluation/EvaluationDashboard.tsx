@@ -1,7 +1,10 @@
+import { useState } from "react";
 import {
   BadgeCheckIcon,
   ChartNoAxesCombinedIcon,
+  CheckCircle2Icon,
   CircleAlertIcon,
+  FilePenLineIcon,
   ListChecksIcon,
   MessageSquareTextIcon,
 } from "lucide-react";
@@ -31,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { EvaluationRecord, EvaluationSummary } from "@/lib/api";
+import { submitRemediation, type EvaluationRecord, type EvaluationSummary } from "@/lib/api";
 
 function percent(value: number | null) {
   return value === null ? "Not scored" : `${Math.round(value * 100)}%`;
@@ -182,6 +185,33 @@ export default function EvaluationDashboard({
   onPrevious: () => void;
   onNext: () => void;
 }) {
+  const [remediatingScoreId, setRemediatingScoreId] = useState<string | null>(null);
+  const [remediationReason, setRemediationReason] = useState("");
+  const [remediationNotes, setRemediationNotes] = useState("");
+  const [remediationSuccess, setRemediationSuccess] = useState<string | null>(null);
+  const [remediationSubmitting, setRemediationSubmitting] = useState(false);
+
+  const handleRemediationSubmit = async (scoreId: string) => {
+    if (!remediationNotes.trim()) return;
+    setRemediationSubmitting(true);
+    try {
+      await submitRemediation({
+        score_id: scoreId,
+        reason: remediationReason || "Low Faithfulness / Inaccurate Evidence",
+        correction_notes: remediationNotes,
+      });
+      setRemediationSuccess(scoreId);
+      setTimeout(() => {
+        setRemediatingScoreId(null);
+        setRemediationSuccess(null);
+      }, 3000);
+    } catch {
+      // handled
+    } finally {
+      setRemediationSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-5" aria-busy={loading}>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Evaluation summary">
@@ -335,6 +365,79 @@ export default function EvaluationDashboard({
                       ))}
                     </div>
                   </div>
+
+                  <div className="mt-3 flex items-center justify-between border-t pt-2 text-xs">
+                    <span className="font-mono text-muted-foreground">{item.score_id}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5"
+                      onClick={() => {
+                        setRemediatingScoreId(remediatingScoreId === item.score_id ? null : item.score_id);
+                        setRemediationReason(item.low_faithfulness ? "Low Faithfulness / Hallucinated Evidence" : "Factually Inaccurate");
+                        setRemediationNotes("");
+                      }}
+                    >
+                      <FilePenLineIcon className="size-3.5" />
+                      {remediatingScoreId === item.score_id ? "Cancel Correction" : "Remediate Answer"}
+                    </Button>
+                  </div>
+
+                  {remediatingScoreId === item.score_id && (
+                    <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/50 p-4 text-xs dark:border-amber-900/50 dark:bg-amber-950/20">
+                      {remediationSuccess === item.score_id ? (
+                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2Icon className="size-4" />
+                          <span>Correction submitted! Document queued for re-indexing in Operations Hub.</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="font-semibold text-amber-900 dark:text-amber-200">
+                            Operational Remediation & Document Re-indexing
+                          </div>
+                          <div>
+                            <label className="block text-slate-600 dark:text-slate-400 mb-1">Reason:</label>
+                            <input
+                              type="text"
+                              className="w-full rounded border bg-background px-2.5 py-1 text-xs"
+                              value={remediationReason}
+                              onChange={(e) => setRemediationReason(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-slate-600 dark:text-slate-400 mb-1">
+                              Ground-Truth Engineering Correction:
+                            </label>
+                            <textarea
+                              rows={2}
+                              className="w-full rounded border bg-background px-2.5 py-1 text-xs"
+                              placeholder="State the verified operating procedure, tag, or drawing revision..."
+                              value={remediationNotes}
+                              onChange={(e) => setRemediationNotes(e.target.value)}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => setRemediatingScoreId(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                              disabled={remediationSubmitting || !remediationNotes.trim()}
+                              onClick={() => handleRemediationSubmit(item.score_id)}
+                            >
+                              {remediationSubmitting ? "Submitting..." : "Submit Correction & Queue Re-indexing"}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

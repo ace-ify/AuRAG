@@ -7,6 +7,7 @@ import {
   GaugeIcon,
   LayoutDashboardIcon,
   SearchIcon,
+  SlidersIcon,
   UserRoundSearchIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -32,6 +33,7 @@ const workspaceItems = [
   { label: "Command Center", icon: LayoutDashboardIcon, href: "/" },
   { label: "Investigate", icon: SearchIcon, href: "/investigate" },
   { label: "Predictive Watch", icon: GaugeIcon, href: "/predictive-watch" },
+  { label: "Operations & Governance", icon: SlidersIcon, href: "/operations" },
   { label: "Knowledge Risk", icon: UserRoundSearchIcon, href: "/knowledge-risk" },
   { label: "RAG Comparison", icon: GitCompareArrowsIcon, href: "/comparison" },
   { label: "Evaluation", icon: ChartNoAxesCombinedIcon, href: "/evaluation" },

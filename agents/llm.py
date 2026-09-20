@@ -107,28 +107,50 @@ def ask_json(
     user_prompt: str,
     context_keys: list[str],
     model: str | None = None,
-    provider: str = "groq",
+    provider: str | None = None,
 ) -> dict:
-    """Calls Groq in JSON mode, returns {"answer": str, "citations": [str]}.
+    """Calls the selected LLM provider in JSON mode, returns {"answer": str, "citations": [str]}.
     citations is whitelist-filtered to context_keys — a model that echoes
     back passage text instead of the bracketed key can't corrupt downstream
     key-based lookups (graph_paths, ground-truth matching). Empty or invalid
     model citations remain empty: retrieved context is not proof that the
     answer actually used or supports every passage."""
-    if provider == "gemini":
+    active_provider = (provider or os.environ.get("LLM_PROVIDER", "groq")).strip().lower()
+
+    if active_provider == "gemini":
         data = _call_gemini_json(
             system_prompt + _CITATION_RULE,
             user_prompt,
             model or GEMINI_REASONING_MODEL,
         )
-    elif provider == "groq":
+    elif active_provider == "bedrock":
+        from agents.gateway import get_gateway
+
+        gateway = get_gateway()
+        data, _metrics = gateway.invoke_json(
+            system_prompt + _CITATION_RULE,
+            user_prompt,
+            model=model,
+            provider_name="bedrock",
+        )
+    elif active_provider == "mock":
+        from agents.gateway import get_gateway
+
+        gateway = get_gateway()
+        data, _metrics = gateway.invoke_json(
+            system_prompt + _CITATION_RULE,
+            user_prompt,
+            model=model,
+            provider_name="mock",
+        )
+    elif active_provider == "groq":
         data = _call_groq_json(
             system_prompt + _CITATION_RULE,
             user_prompt,
             model or REASONING_MODEL,
         )
     else:
-        raise ValueError(f"Unsupported LLM provider: {provider}")
+        raise ValueError(f"Unsupported LLM provider: {active_provider}")
     citations = [c for c in (data.get("citations") or []) if c in context_keys]
     return {
         "answer": data.get("answer", ""),
@@ -171,18 +193,42 @@ def _deterministic_intent(query: str) -> dict | None:
     return None
 
 
-def classify_intent(query: str, model: str = ROUTING_MODEL) -> dict:
-    """Classifies a query into one of agents.state.INTENTS via Groq's fast
-    routing model. Never trusts the model's `intent` field at face value —
-    same defensive pattern as ask_json()'s citation whitelist — an
-    unrecognized label normalizes to {"intent": "copilot", "confidence": 0.0},
-    which also composes for free with the Supervisor's confidence-floor
-    fallback (0.0 always fails the floor)."""
+def classify_intent(query: str, model: str | None = None) -> dict:
+    """Classifies a query into one of agents.state.INTENTS via fast routing model.
+    Never trusts the model's `intent` field at face value — same defensive
+    pattern as ask_json()'s citation whitelist — an unrecognized label
+    normalizes to {"intent": "copilot", "confidence": 0.0}, which also
+    composes for free with the Supervisor's confidence-floor fallback (0.0
+    always fails the floor)."""
     deterministic = _deterministic_intent(query)
     if deterministic:
         return deterministic
 
-    data = _call_groq_json(_INTENT_SYSTEM, f"Question: {query}", model)
+    active_provider = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
+    if active_provider == "bedrock":
+        from agents.gateway import BedrockProvider, get_gateway
+
+        gateway = get_gateway()
+        target_model = model or BedrockProvider.DEFAULT_ROUTING_MODEL
+        data, _ = gateway.invoke_json(
+            _INTENT_SYSTEM,
+            f"Question: {query}",
+            model=target_model,
+            provider_name="bedrock",
+        )
+    elif active_provider == "mock":
+        from agents.gateway import get_gateway
+
+        data, _ = get_gateway().invoke_json(
+            _INTENT_SYSTEM,
+            f"Question: {query}",
+            model=model,
+            provider_name="mock",
+        )
+    else:
+        target_model = model or ROUTING_MODEL
+        data = _call_groq_json(_INTENT_SYSTEM, f"Question: {query}", target_model)
+
     intent = data.get("intent")
     if intent not in INTENTS:
         return {"intent": "copilot", "confidence": 0.0}
@@ -191,6 +237,7 @@ def classify_intent(query: str, model: str = ROUTING_MODEL) -> dict:
     except (TypeError, ValueError):
         confidence = 0.0
     return {"intent": intent, "confidence": confidence}
+
 
 
 if __name__ == "__main__":

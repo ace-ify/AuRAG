@@ -428,3 +428,129 @@ export async function getEvaluationSummary(): Promise<EvaluationSummary> {
   if (!res.ok) throw new Error("Failed to load evaluation summary.");
   return res.json();
 }
+
+// Enterprise Automations & Governance
+export interface AutomationPolicy {
+  policy_id: string;
+  site_id: string;
+  name: string;
+  description?: string | null;
+  trigger_type: string;
+  action_type: string;
+  target_system: string;
+  approval_threshold: "REQUIRES_APPROVAL" | "AUTONOMOUS";
+  parameters: Record<string, unknown>;
+  rollback_guidance?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApprovalRecord {
+  approval_id: string;
+  action_type: string;
+  target_system: string;
+  payload: Record<string, unknown>;
+  requested_by: string;
+  site_id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "AUTONOMOUS_EXECUTED";
+  reviewed_by?: string | null;
+  rollback_guidance?: string | null;
+  created_at?: string;
+  reviewed_at?: string | null;
+}
+
+export interface EvaluationRemediation {
+  remediation_id: string;
+  score_id: string;
+  user_id: string;
+  site_id: string;
+  reason: string;
+  incorrect_snippets: string[];
+  correction_notes: string;
+  status: "PENDING_REINDEX" | "REINDEXED" | "RESOLVED";
+  created_at?: string;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+}
+
+export async function getAutomationPolicies(): Promise<{ policies: AutomationPolicy[]; total: number }> {
+  const res = await fetch(`${API_URL}/api/automations/policies`);
+  if (!res.ok) throw new Error("Failed to load automation policies.");
+  return res.json();
+}
+
+export async function evaluateAutomation(payload: {
+  trigger_type: string;
+  context_data: Record<string, unknown>;
+  dry_run?: boolean;
+}): Promise<any> {
+  const res = await fetch(`${API_URL}/api/automations/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to evaluate automation.");
+  return res.json();
+}
+
+export async function getApprovalQueue(status?: string): Promise<{ queue: ApprovalRecord[]; total: number }> {
+  const url = status
+    ? `${API_URL}/api/automations/queue?status=${status}`
+    : `${API_URL}/api/automations/queue`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load approval queue.");
+  return res.json();
+}
+
+export async function reviewApproval(
+  approvalId: string,
+  action: "APPROVED" | "REJECTED",
+  notes: string = ""
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/automations/queue/${approvalId}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, notes }),
+  });
+  if (!res.ok) throw new Error("Failed to submit approval review.");
+  return res.json();
+}
+
+export async function getRemediations(status?: string): Promise<{ remediations: EvaluationRemediation[]; total: number }> {
+  const url = status
+    ? `${API_URL}/api/automations/remediations?status=${status}`
+    : `${API_URL}/api/automations/remediations`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load remediations.");
+  return res.json();
+}
+
+export async function submitRemediation(payload: {
+  score_id: string;
+  reason: string;
+  incorrect_snippets?: string[];
+  correction_notes: string;
+}): Promise<any> {
+  const res = await fetch(`${API_URL}/api/automations/remediations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to submit evaluation remediation.");
+  return res.json();
+}
+
+export async function updateRemediationStatus(
+  remediationId: string,
+  status: "PENDING_REINDEX" | "REINDEXED" | "RESOLVED"
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/automations/remediations/${remediationId}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!res.ok) throw new Error("Failed to update remediation status.");
+  return res.json();
+}
+

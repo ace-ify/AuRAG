@@ -283,3 +283,99 @@ def summarize_evaluations(evaluations: list[dict]) -> dict:
         "averages": averages,
         "trend": [],
     }
+
+
+def create_remediation(
+    db,
+    *,
+    score_id: str,
+    user_id: str,
+    site_id: str = "plant-mumbai-01",
+    reason: str,
+    incorrect_snippets: list[str] | None = None,
+    correction_notes: str,
+) -> dict:
+    """Flag an answer or evidence chunk as incorrect and queue for re-indexing."""
+    from backend.app.db.models import AuditEvent, EvaluationRemediation
+
+    incorrect_snippets = incorrect_snippets or []
+    remediation = EvaluationRemediation(
+        score_id=score_id,
+        user_id=user_id,
+        site_id=site_id,
+        reason=reason,
+        incorrect_snippets_json=json.dumps(incorrect_snippets),
+        correction_notes=correction_notes,
+        status="PENDING_REINDEX",
+    )
+    db.add(remediation)
+    db.flush()
+
+    audit = AuditEvent(
+        user_id=user_id,
+        site_id=site_id,
+        role="ReliabilityEngineer",
+        action_type="EVALUATION_REMEDIATION_SUBMITTED",
+        resource_type="evaluation_remediation",
+        resource_id=remediation.remediation_id,
+        details_json=json.dumps({"score_id": score_id, "reason": reason}),
+        status="SUCCESS",
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(remediation)
+    return remediation.to_dict()
+
+
+def list_remediations(
+    db,
+    *,
+    site_id: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    """List operational remediation records."""
+    from backend.app.db.models import EvaluationRemediation
+
+    query = db.query(EvaluationRemediation)
+    if site_id:
+        query = query.filter(EvaluationRemediation.site_id == site_id)
+    if status:
+        query = query.filter(EvaluationRemediation.status == status)
+    records = query.order_by(EvaluationRemediation.created_at.desc()).all()
+    return [r.to_dict() for r in records]
+
+
+def update_remediation_status(
+    db,
+    *,
+    remediation_id: str,
+    status: str,
+    resolved_by: str,
+) -> dict | None:
+    """Update remediation status (e.g. REINDEXED or RESOLVED)."""
+    from backend.app.db.models import AuditEvent, EvaluationRemediation
+
+    item = db.query(EvaluationRemediation).filter(EvaluationRemediation.remediation_id == remediation_id).first()
+    if not item:
+        return None
+
+    item.status = status
+    if status in ("REINDEXED", "RESOLVED"):
+        item.resolved_at = datetime.now(timezone.utc)
+        item.resolved_by = resolved_by
+
+    audit = AuditEvent(
+        user_id=resolved_by,
+        site_id=item.site_id,
+        role="AutomationAdmin",
+        action_type="EVALUATION_REMEDIATION_STATUS_UPDATED",
+        resource_type="evaluation_remediation",
+        resource_id=item.remediation_id,
+        details_json=json.dumps({"new_status": status}),
+        status="SUCCESS",
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(item)
+    return item.to_dict()
+
