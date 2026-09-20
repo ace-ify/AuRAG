@@ -112,3 +112,29 @@ app.include_router(work_orders.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 app.include_router(connectors.router, prefix="/api")
 app.include_router(automations.router, prefix="/api")
+
+
+def _prewarm_imports():
+    """Pre-load heavy modules in the background so the first /api/chat request
+    doesn't block 30-50s on sentence_transformers + Google GenAI + agent chain."""
+    import logging
+    log = logging.getLogger("prewarm")
+    try:
+        log.info("Pre-warming heavy imports...")
+        import time
+        t0 = time.monotonic()
+        # This triggers: retrieval.embeddings -> sentence_transformers
+        from retrieval.embeddings import get_model
+        get_model()  # actually load the model weights
+        # Pre-import the agent chain
+        from agents import supervisor  # noqa: F401
+        log.info("Pre-warm complete in %.1fs", time.monotonic() - t0)
+    except Exception as exc:
+        log.warning("Pre-warm failed (non-fatal): %s", exc)
+
+
+@app.on_event("startup")
+async def startup_prewarm():
+    import threading
+    threading.Thread(target=_prewarm_imports, daemon=True).start()
+
