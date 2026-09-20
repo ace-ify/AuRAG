@@ -1,8 +1,10 @@
 """Process liveness and dependency readiness endpoints."""
 
 import os
+import sys
 
 from fastapi import APIRouter, HTTPException
+
 
 from backend.app.services.health import build_readiness
 
