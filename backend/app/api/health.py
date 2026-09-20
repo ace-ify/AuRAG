@@ -89,3 +89,50 @@ def readiness() -> dict:
         }
 
 
+@router.get("/health/debug")
+def debug() -> dict:
+    import traceback
+    info: dict = {
+        "env": {
+            k: ("SET" if os.environ.get(k) else "UNSET")
+            for k in [
+                "NEO4J_URI",
+                "NEO4J_USERNAME",
+                "NEO4J_PASSWORD",
+                "NEO4J_DATABASE",
+                "GROQ_API_KEY",
+                "GROQ_ROUTING_MODEL",
+                "GROQ_REASONING_MODEL",
+                "GEMINI_API_KEY",
+                "QDRANT_URL",
+                "QDRANT_API_KEY",
+                "BACKEND_CORS_ORIGINS",
+            ]
+        },
+        "python_version": sys.version,
+    }
+
+    # Test Neo4j
+    try:
+        from retrieval.index_chunks import get_database, get_driver
+        driver = get_driver()
+        db = get_database()
+        info["neo4j_database"] = str(db)
+        with driver.session(database=db) as session:
+            tags = session.run("MATCH (e:Equipment) RETURN e.tag_id AS tag_id LIMIT 3").data()
+            info["neo4j"] = {"status": "ok", "tags": tags}
+    except Exception as exc:
+        info["neo4j"] = {"status": "error", "error": str(exc), "traceback": traceback.format_exc()}
+
+    # Test Groq routing
+    try:
+        from agents.llm import classify_intent
+        intent = classify_intent("Which procedures govern P-101?")
+        info["groq_routing"] = {"status": "ok", "intent": intent}
+    except Exception as exc:
+        info["groq_routing"] = {"status": "error", "error": str(exc), "traceback": traceback.format_exc()}
+
+    return info
+
+
+

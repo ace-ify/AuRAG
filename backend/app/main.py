@@ -81,18 +81,35 @@ app.add_middleware(
 
 
 @app.exception_handler(HTTPException)
-async def flat_http_exception_handler(request, exc: HTTPException):
-    # Every endpoint raises HTTPException(..., detail={"error": ..., "detail":
-    # ...}) — FastAPI's default handler would wrap that as {"detail": {...}},
-    # nesting it one level deeper than documented. This flattens the response
-    # to exactly the {"error": ..., "detail": ...} shape README.md describes.
-    # If exc.detail is a string or non-dict, defensively wrap it so clients always
-    # receive a consistent JSON object structure.
+async def flat_http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, dict):
         content = exc.detail
     else:
         content = {"error": str(exc.detail), "detail": str(exc.detail)}
-    return JSONResponse(status_code=exc.status_code, content=content)
+    # Prevent Render / Cloudflare reverse proxy from converting 5xx into HTML 502 with dropped CORS
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+    if exc.status_code >= 500:
+        return JSONResponse(status_code=200, content={"error": "service_degraded", **content}, headers=headers)
+    return JSONResponse(status_code=exc.status_code, content=content, headers=headers)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    import traceback
+    return JSONResponse(
+        status_code=200,
+        content={"error": "internal_error", "detail": str(exc), "traceback": traceback.format_exc()},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
 
 
 app.include_router(chat.router, prefix="/api")
