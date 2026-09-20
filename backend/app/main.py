@@ -67,8 +67,13 @@ app.add_middleware(
 
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "AuRAG Operator Console API"}
+
+
 @app.exception_handler(HTTPException)
-async def flat_http_exception_handler(request: Request, exc: HTTPException):
+def flat_http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, dict):
         content = exc.detail
     else:

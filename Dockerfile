@@ -23,7 +23,6 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000 \
     MEM0_DIR=/app/.runtime/mem0 \
     HF_HOME=/app/.cache/huggingface
 
@@ -55,9 +54,9 @@ RUN mkdir -p /app/data/incoming /app/.runtime/mem0 \
 
 USER aurag
 
-EXPOSE 8000
+EXPOSE 10000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health/live' % os.environ.get('PORT', '8000'), timeout=3)"
+    CMD python -c "import os, urllib.request; p = os.environ.get('PORT', '10000'); urllib.request.urlopen('http://127.0.0.1:%s/api/health/live' % p, timeout=3)"
 
-CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port \"${PORT:-8000}\""]
+CMD ["sh", "-c", "exec uvicorn backend.app.main:app --host 0.0.0.0 --port \"${PORT:-10000}\""]
