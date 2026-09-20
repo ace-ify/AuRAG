@@ -175,14 +175,15 @@ def _deterministic_intent(query: str) -> dict | None:
     """Route unambiguous cross-incident questions without provider variance."""
     lowered = query.casefold()
     requirement_query = (
-        "requirement" in lowered
+        any(k in lowered for k in ("requirement", "clause", "procedure", "govern", "compliant", "compliance"))
         and any(
             phrase in lowered
-            for phrase in ("what is", "what are", "what does", "state the", "describe the")
+            for phrase in ("what is", "what are", "what does", "state the", "describe the", "which")
         )
     )
     if requirement_query:
         return {"intent": "compliance", "confidence": 1.0}
+
     lessons_query = (
         ("pattern" in lowered and "failure" in lowered)
         or "across equipment failures" in lowered

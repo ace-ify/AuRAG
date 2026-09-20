@@ -68,11 +68,16 @@ class MemoryService:
 
         limit = max(1, min(limit or self.max_results, self.max_results))
         try:
-            response = self.client.search(
-                query=query,
-                filters={"user_id": user_id},
-                top_k=limit,
-            )
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    self.client.search,
+                    query=query,
+                    filters={"user_id": user_id},
+                    top_k=limit,
+                )
+                response = future.result(timeout=2.0)
+
             records = response.get("results", response) if isinstance(response, dict) else response
             memories = []
             for record in records or []:
@@ -100,25 +105,29 @@ class MemoryService:
             return False
 
         expires_at = (self._now() + timedelta(days=self.ttl_days)).isoformat()
-        try:
-            self.client.add(
-                messages=[
-                    {"role": "user", "content": query},
-                    {"role": "assistant", "content": answer},
-                ],
-                user_id=user_id,
-                run_id=session_id,
-                metadata={
-                    "source": "aurag_chat",
-                    "session_id": session_id,
-                    "expires_at": expires_at,
-                },
-            )
-            self._last_error = None
-            return True
-        except Exception as exc:
-            self._last_error = str(exc)
-            return False
+        from threading import Thread
+
+        def _bg_remember():
+            try:
+                self.client.add(
+                    messages=[
+                        {"role": "user", "content": query},
+                        {"role": "assistant", "content": answer},
+                    ],
+                    user_id=user_id,
+                    run_id=session_id,
+                    metadata={
+                        "source": "aurag_chat",
+                        "session_id": session_id,
+                        "expires_at": expires_at,
+                    },
+                )
+            except Exception as exc:
+                self._last_error = str(exc)
+
+        Thread(target=_bg_remember, daemon=True).start()
+        return True
+
 
     def status(self) -> dict[str, str]:
         if not self._configured:

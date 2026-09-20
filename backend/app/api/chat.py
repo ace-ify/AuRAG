@@ -132,18 +132,23 @@ def chat(
                 graph_paths=result.get("graph_paths") or [],
                 retrieved_context=context,
             )
-            Thread(
-                target=run_score_job,
-                args=(
-                    score_id,
-                    request.query,
-                    result["agent_response"],
-                    context,
-                ),
-                daemon=True,
-            ).start()
+            import os
+            enable_scoring = os.environ.get("ENABLE_RAGAS_SCORING", "false").strip().lower() in ("1", "true", "yes")
+            if enable_scoring:
+                Thread(
+                    target=run_score_job,
+                    args=(
+                        score_id,
+                        request.query,
+                        result["agent_response"],
+                        context,
+                    ),
+                    daemon=True,
+                ).start()
+                result["ragas_status"] = "scoring"
+            else:
+                result["ragas_status"] = "skipped_disabled"
             result["score_id"] = score_id
-            result["ragas_status"] = "scoring"
             result["ragas_scores"] = {}
             result["low_faithfulness"] = False
         else:

@@ -14,6 +14,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -m pip install -r requirements.lock \
     && python -m pip install "pyjwt>=2.8.0" "cryptography>=42.0.0"
 
+ENV HF_HOME=/root/.cache/huggingface
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
 
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -21,10 +24,12 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8000 \
-    MEM0_DIR=/app/.runtime/mem0
+    MEM0_DIR=/app/.runtime/mem0 \
+    HF_HOME=/app/.cache/huggingface
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
+        ca-certificates \
         libglib2.0-0 \
         libgomp1 \
         tesseract-ocr \
@@ -34,6 +39,8 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder --chown=aurag:aurag /root/.cache/huggingface /app/.cache/huggingface
+
 COPY --chown=aurag:aurag agents agents
 COPY --chown=aurag:aurag backend backend
 COPY --chown=aurag:aurag data data
