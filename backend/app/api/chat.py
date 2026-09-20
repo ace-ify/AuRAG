@@ -153,7 +153,30 @@ def chat(
             result["low_faithfulness"] = False
         return result
     except Exception as exc:
-        raise HTTPException(status_code=503, detail={"error": "chat_failed", "detail": str(exc)}) from exc
+        return {
+            "user_query": request.query,
+            "intent": "general",
+            "routing_confidence": 0.0,
+            "routed_agent": "system",
+            "retrieved_context": [],
+            "graph_paths": [],
+            "agent_response": f"Service notification: {str(exc)}",
+            "citations": [],
+            "session_id": session_id if "session_id" in locals() else "",
+            "memory_context": [],
+            "ragas_scores": {},
+            "ragas_status": "error",
+            "low_faithfulness": False,
+            "site_id": effective_site_id if "effective_site_id" in locals() else "",
+            "user_id": effective_user_id if "effective_user_id" in locals() else "",
+            "memory_recalled": 0,
+            "grounded_claims": [],
+            "grounding_status": "ERROR",
+            "overall_confidence": 0.0,
+            "score_id": None,
+            "error": str(exc),
+        }
+
 
 
 @router.get("/chat/scores/{score_id}")

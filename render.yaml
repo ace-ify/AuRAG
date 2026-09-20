@@ -6,10 +6,13 @@ envVarGroups:
       - key: NEO4J_DATABASE
         value: c7c5e203
 
-      - key: GROQ_REASONING_MODEL
+      - key: GROQ_ROUTING_MODEL
         value: openai/gpt-oss-20b
+      - key: GROQ_REASONING_MODEL
+        value: openai/gpt-oss-120b
       - key: GROQ_JUDGE_MODEL
         value: openai/gpt-oss-20b
+
       - key: RAGAS_JUDGE_TIMEOUT_SECONDS
         value: "45"
       - key: RAGAS_JUDGE_MAX_RETRIES

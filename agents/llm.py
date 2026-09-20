@@ -22,12 +22,13 @@ from ingestion.gemini_util import throttled_generate
 REPO_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(REPO_ROOT / ".env")
 
-REASONING_MODEL = os.environ.get("GROQ_REASONING_MODEL", "llama-3.3-70b-versatile")
-ROUTING_MODEL = os.environ.get("GROQ_ROUTING_MODEL", "llama-3.1-8b-instant")
+REASONING_MODEL = os.environ.get("GROQ_REASONING_MODEL", "openai/gpt-oss-120b")
+ROUTING_MODEL = os.environ.get("GROQ_ROUTING_MODEL", "openai/gpt-oss-20b")
 GEMINI_REASONING_MODEL = os.environ.get(
     "GEMINI_REASONING_MODEL",
     "gemini-3.1-flash-lite",
 )
+
 
 _client = None
 _gemini_client = None
