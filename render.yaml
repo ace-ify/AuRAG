@@ -4,7 +4,8 @@ envVarGroups:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: NEO4J_DATABASE
-        value: neo4j
+        value: c7c5e203
+
       - key: GROQ_REASONING_MODEL
         value: openai/gpt-oss-20b
       - key: GROQ_JUDGE_MODEL

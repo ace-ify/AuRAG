@@ -92,18 +92,22 @@ def create_predictive_event(
 
 
 def list_predictive_events(session, *, since: str | None = None, limit: int = 50) -> list[dict]:
-    rows = session.run(
-        """
-        MATCH (event:PredictiveEvent)
-        WHERE $since IS NULL OR event.id > $since
-        RETURN properties(event) AS event
-        ORDER BY event.id ASC
-        LIMIT $limit
-        """,
-        since=since,
-        limit=limit,
-    ).data()
-    return [row["event"] for row in rows]
+    try:
+        rows = session.run(
+            """
+            MATCH (event:PredictiveEvent)
+            WHERE $since IS NULL OR event.id > $since
+            RETURN properties(event) AS event
+            ORDER BY event.id ASC
+            LIMIT $limit
+            """,
+            since=since,
+            limit=limit,
+        ).data()
+        return [row["event"] for row in rows]
+    except Exception:
+        return []
+
 
 
 def mark_notification_read(session, event_id: str) -> bool:

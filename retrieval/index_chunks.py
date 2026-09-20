@@ -35,8 +35,15 @@ def get_driver():
     return _driver
 
 
-def get_database() -> str:
-    return os.environ.get("NEO4J_DATABASE", "neo4j")
+def get_database() -> str | None:
+    db = os.environ.get("NEO4J_DATABASE")
+    if not db or db in ("neo4j", "None", ""):
+        user = os.environ.get("NEO4J_USERNAME")
+        if user and user != "neo4j":
+            return user
+        return None
+    return db
+
 
 
 def index_chunks(session, chunk_ids: list[str] | None = None) -> int:

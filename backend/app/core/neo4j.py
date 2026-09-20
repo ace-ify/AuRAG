@@ -65,6 +65,40 @@ class FallbackNeo4jSession:
 
         return FallbackResult()
 
+class ResilientResult:
+    def __init__(self, real_result, fallback_result):
+        self._real = real_result
+        self._fallback = fallback_result
+
+    def data(self):
+        try:
+            return self._real.data()
+        except Exception as exc:
+            logger.warning("Neo4j result.data() failed (%s); using fallback.", exc)
+            return self._fallback.data()
+
+    def single(self):
+        try:
+            return self._real.single()
+        except Exception as exc:
+            logger.warning("Neo4j result.single() failed (%s); using fallback.", exc)
+            return self._fallback.single()
+
+    def values(self, *keys):
+        try:
+            return self._real.values(*keys)
+        except Exception as exc:
+            logger.warning("Neo4j result.values() failed (%s); using fallback.", exc)
+            return self._fallback.values(*keys)
+
+    def __iter__(self):
+        try:
+            return iter(self._real)
+        except Exception as exc:
+            logger.warning("Neo4j result iterator failed (%s); using fallback.", exc)
+            return iter(self._fallback)
+
+
 class ResilientNeo4jSession:
     """Wraps a Neo4j session with fallback to FallbackNeo4jSession on query error."""
 
@@ -75,7 +109,8 @@ class ResilientNeo4jSession:
     def run(self, query: str, **kwargs):
         if self._real_session is not None:
             try:
-                return self._real_session.run(query, **kwargs)
+                real_res = self._real_session.run(query, **kwargs)
+                return ResilientResult(real_res, self._fallback.run(query, **kwargs))
             except Exception as exc:
                 logger.warning("Live Neo4j run failed (%s); using fallback mock result.", exc)
         return self._fallback.run(query, **kwargs)
@@ -100,7 +135,11 @@ def get_session():
         from retrieval.index_chunks import get_database, get_driver
 
         driver = get_driver()
-        real_session = driver.session(database=get_database())
+        db = get_database()
+        if db:
+            real_session = driver.session(database=db)
+        else:
+            real_session = driver.session()
     except Exception as exc:
         logger.warning(
             "Neo4j database connection unavailable (%s); using resilient fallback session.",
@@ -112,3 +151,4 @@ def get_session():
         yield resilient
     finally:
         resilient.close()
+
