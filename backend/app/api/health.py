@@ -27,10 +27,13 @@ def _check_qdrant() -> None:
 
 
 def _check_redis() -> None:
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        raise RuntimeError("REDIS_URL is not configured")
     from redis import Redis
 
     client = Redis.from_url(
-        os.environ.get("REDIS_URL", "redis://localhost:6379"),
+        redis_url,
         socket_connect_timeout=2,
         socket_timeout=2,
     )
@@ -64,7 +67,5 @@ def liveness() -> dict:
 
 @router.get("/health/ready")
 def readiness() -> dict:
-    result = build_readiness(dependency_checks())
-    if not result["ready"]:
-        raise HTTPException(status_code=503, detail=result)
-    return result
+    return build_readiness(dependency_checks())
+

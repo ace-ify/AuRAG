@@ -43,9 +43,14 @@ app = FastAPI(title="AuRAG Operator Console API")
 def cors_origins() -> list[str]:
     configured = os.environ.get(
         "BACKEND_CORS_ORIGINS",
-        "http://localhost:3000,http://localhost:3001",
+        "*",
     )
-    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+    if not configured or configured.strip() == "*":
+        return ["*"]
+    origins = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+    if "*" not in origins:
+        origins.append("*")
+    return origins
 
 # ponytail: wide-open localhost dev origins, no auth — matches the project's
 # standing "no auth/permissions" ground rule and this being a local demo app,
@@ -68,9 +73,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 @app.exception_handler(HTTPException)

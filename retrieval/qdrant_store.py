@@ -23,8 +23,10 @@ def get_client() -> QdrantClient:
         _client = QdrantClient(
             url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
             api_key=os.environ.get("QDRANT_API_KEY") or None,
+            timeout=2.0,
         )
     return _client
+
 
 
 def ensure_collection() -> None:

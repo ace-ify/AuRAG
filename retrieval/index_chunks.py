@@ -29,9 +29,8 @@ def get_driver():
     if _driver is None:
         uri, user, pwd = (os.environ.get(k) for k in ("NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD"))
         if not all([uri, user, pwd]):
-            print("Missing NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in .env", file=sys.stderr)
-            sys.exit(1)
-        _driver = GraphDatabase.driver(uri, auth=(user, pwd))
+            raise RuntimeError("Missing NEO4J_URI/NEO4J_USERNAME/NEO4J_PASSWORD in environment")
+        _driver = GraphDatabase.driver(uri, auth=(user, pwd), connection_timeout=5.0, max_connection_lifetime=300)
         _driver.verify_connectivity()
     return _driver
 
