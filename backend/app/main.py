@@ -42,16 +42,12 @@ app = FastAPI(title="AuRAG Operator Console API")
 
 
 def cors_origins() -> list[str]:
-    configured = os.environ.get(
-        "BACKEND_CORS_ORIGINS",
-        "*",
-    )
+    configured = os.environ.get("BACKEND_CORS_ORIGINS", "*")
     if not configured or configured.strip() == "*":
         return ["*"]
-    origins = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
-    if "*" not in origins:
-        origins.append("*")
-    return origins
+    # Honor the configured allowlist verbatim. Appending "*" (as before) made
+    # every configured restriction a no-op — a silent open door.
+    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
 
 # ponytail: wide-open localhost dev origins, no auth — matches the project's
 # standing "no auth/permissions" ground rule and this being a local demo app,
@@ -72,34 +68,41 @@ def root():
     return {"status": "ok", "service": "AuRAG Operator Console API"}
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _error_cors_headers(request: Request) -> dict:
+    # CORSMiddleware does not run on exception-handler responses, so echo the
+    # request Origin back (safe without credentials) instead of hardcoding "*".
+    origin = request.headers.get("origin")
+    return {
+        "Access-Control-Allow-Origin": origin or "*",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+
 @app.exception_handler(HTTPException)
 def flat_http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, dict):
         content = exc.detail
     else:
         content = {"error": str(exc.detail), "detail": str(exc.detail)}
-    # Prevent Render / Cloudflare reverse proxy from converting 5xx into HTML 502 with dropped CORS
-    headers = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "*",
-        "Access-Control-Allow-Headers": "*",
-    }
-    if exc.status_code >= 500:
-        return JSONResponse(status_code=200, content={"error": "service_degraded", **content}, headers=headers)
-    return JSONResponse(status_code=exc.status_code, content=content, headers=headers)
+    # Return the real status code. Masking 5xx as 200 (as before) told every
+    # monitor and client that failures were successes.
+    return JSONResponse(status_code=exc.status_code, content=content, headers=_error_cors_headers(request))
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    import traceback
+    # Log the full traceback server-side only; never leak internals to clients.
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(
-        status_code=200,
-        content={"error": "internal_error", "detail": str(exc), "traceback": traceback.format_exc()},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        },
+        status_code=500,
+        content={"error": "internal_error", "detail": "An internal error occurred."},
+        headers=_error_cors_headers(request),
     )
 
 

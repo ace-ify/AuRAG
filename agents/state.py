@@ -23,6 +23,9 @@ class AgentState(TypedDict, total=False):
     session_id: str
     memory_context: list[str]
     messages: list[dict[str, Any]]
+    reflections: int  # self-correction retries the agent performed (Copilot's plan-act-observe loop)
+    reflected: bool  # True if the agent re-retrieved and re-answered after an ungrounded first attempt
+    tool_trace: list[dict[str, Any]]  # tool calls the agentic Copilot made, when COPILOT_ENGINE=tools
 
 
 # Single source of truth for valid intent labels — shared by agents/llm.py

@@ -12,6 +12,10 @@ first place it's exposed to a live UI, so it needs to fail as a clean 503,
 not a stack trace on someone's screen."""
 from threading import Thread
 from uuid import uuid4
+import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -61,11 +65,6 @@ def answer_query(
             raise TimeoutError("Agent pipeline exceeded 25s budget")
 
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 @router.get("/chat/ping")
 @router.post("/chat/ping")
 def chat_ping() -> dict:
@@ -83,27 +82,38 @@ def chat(
     effective_user_id = getattr(current_user, "user_id", request.user_id) if current_user else request.user_id
     effective_site_id = getattr(site, "site_id", request.site_id or "plant-mumbai-01") if site else (request.site_id or "plant-mumbai-01")
 
-    # Safety Guardrails check
+    # Safety guardrails — fail CLOSED. If the check itself errors, refuse
+    # rather than let an unscreened query through to the agents.
     try:
         guard_check = check_safety_guardrails(request.query)
-        if not guard_check.is_safe:
-            return {
-                "user_query": request.query,
-                "routed_agent": "safety_guardrail",
-                "agent_response": guard_check.refusal_message,
-                "citations": [],
-                "graph_paths": [],
-                "session_id": session_id,
-                "site_id": effective_site_id,
-                "user_id": effective_user_id,
-                "guardrail_status": "REFUSED_SAFETY_VIOLATION",
-                "score_id": None,
-                "ragas_status": "skipped_guardrail_refusal",
-                "ragas_scores": {},
-                "low_faithfulness": False,
-            }
+        guard_ok = guard_check.is_safe
+        refusal = guard_check.refusal_message
     except Exception as exc:
-        logger.warning("Guardrails check error: %s", exc)
+        logger.error("Guardrail check errored; failing closed (refusing). %s", exc)
+        guard_ok = False
+        refusal = (
+            "The safety pre-check could not be completed, so this query is refused "
+            "as a precaution. Please retry shortly."
+        )
+
+    if not guard_ok:
+        return {
+            "user_query": request.query,
+            "routed_agent": "safety_guardrail",
+            "agent_response": refusal,
+            "citations": [],
+            "graph_paths": [],
+            "session_id": session_id,
+            "site_id": effective_site_id,
+            "user_id": effective_user_id,
+            "guardrail_status": "REFUSED_SAFETY_VIOLATION",
+            "grounding_status": "UNGROUNDED",
+            "overall_confidence": 0.0,
+            "score_id": None,
+            "ragas_status": "skipped_guardrail_refusal",
+            "ragas_scores": {},
+            "low_faithfulness": False,
+        }
 
     sanitized_query = mask_pii(request.query)
 
@@ -115,7 +125,10 @@ def chat(
     except Exception as exc:
         logger.warning("Memory recall error: %s", exc)
 
-    # Core reasoning (fail-open)
+    # Core reasoning. On failure we ABSTAIN — we must never fabricate a
+    # confident answer (the old path returned a canned P-101 compliance answer
+    # with invented citations on ANY exception, which for a safety/compliance
+    # product is the most dangerous possible failure mode).
     try:
         result = answer_query(
             session,
@@ -124,23 +137,35 @@ def chat(
             session_id=session_id,
         )
     except Exception as exc:
-        logger.error("Core answer_query failed (%s); using resilient graph response.", exc, exc_info=True)
+        logger.error("Core answer_query failed (%s); abstaining, no fabricated content.", exc, exc_info=True)
         result = {
             "user_query": request.query,
-            "routed_agent": "compliance",
+            "routed_agent": "system_degraded",
             "agent_response": (
-                "Pump P-101 is governed by Procedure PROC-001 (Centrifugal Pump Preventive Maintenance SOP) "
-                "and Regulatory Clause FACT-1948-SEC-31 (Factories Act 1948 Section 31: Pressure Plant Examination). "
-                "Scheduled quarterly lubrication service is documented under Work Order WO-1002."
+                "The knowledge system is temporarily unavailable, so I can't produce a "
+                "grounded answer right now. Do not treat this as an all-clear — please "
+                "retry shortly or consult the source system directly."
             ),
-            "citations": ["PROC-001", "FACT-1948-SEC-31", "WO-1002"],
-            "retrieved_context": [
-                ("PROC-001", "PROC-001 v1.2: Centrifugal Pump Preventive Maintenance SOP"),
-                ("FACT-1948-SEC-31", "Factories Act 1948 Section 31: Pressure plant must be examined periodically."),
-                ("WO-1002", "WO-1002 (2025-01-15, Corrective, Overdue): Lubrication inspection for pump P-101"),
-            ],
-            "graph_paths": [{"type": "Equipment", "id": "P-101"}],
+            "citations": [],
+            "retrieved_context": [],
+            "graph_paths": [],
+            "degraded": True,
         }
+
+    # If the graph is degraded and produced no grounded context, abstain rather
+    # than let an agent answer from nothing (defensive: the fabrication paths
+    # are gone, but empty-context answers on an outage are still misleading).
+    # `is True` is deliberate — only a real ResilientNeo4jSession reporting a
+    # confirmed outage triggers this, not an arbitrary/mocked session object.
+    if getattr(session, "degraded", False) is True and not (result.get("retrieved_context") or []):
+        result["degraded"] = True
+        if not result.get("citations"):
+            result["routed_agent"] = "system_degraded"
+            result["agent_response"] = (
+                "The knowledge graph is currently unavailable, so I have no grounded "
+                "evidence to answer from. Do not treat this as an all-clear — please "
+                "retry shortly or consult the source system directly."
+            )
 
     result["session_id"] = session_id
     result["site_id"] = effective_site_id
@@ -149,7 +174,9 @@ def chat(
 
     context = result.get("retrieved_context") or []
 
-    # Resolve sentence-level grounding (fail-open)
+    # Resolve sentence-level grounding. On error, fail CLOSED: UNGROUNDED with
+    # zero confidence — never inflate to GROUNDED/0.95 (the old behavior, which
+    # stamped a fabricated answer as verified).
     try:
         grounded = resolve_sentence_citations(
             answer=result["agent_response"],
@@ -160,10 +187,10 @@ def chat(
         result["grounding_status"] = grounded.grounding_status
         result["overall_confidence"] = grounded.overall_confidence
     except Exception as exc:
-        logger.warning("Sentence grounding error: %s", exc)
+        logger.warning("Sentence grounding error; marking UNGROUNDED. %s", exc)
         result["grounded_claims"] = []
-        result["grounding_status"] = "GROUNDED"
-        result["overall_confidence"] = 0.95
+        result["grounding_status"] = "UNGROUNDED"
+        result["overall_confidence"] = 0.0
 
     # Non-blocking memory update
     try:
@@ -177,10 +204,32 @@ def chat(
     except Exception:
         pass
 
-    result["score_id"] = None
-    result["ragas_status"] = "skipped_disabled"
+    # Asynchronous RAGAS scoring (non-blocking, fail-open). Only when there is
+    # real retrieved context to score against; scoring a degraded/abstained
+    # answer with no context is meaningless. Can be disabled on a
+    # memory-constrained host via RAGAS_ASYNC_SCORING=0.
+    if context and os.environ.get("RAGAS_ASYNC_SCORING", "1") != "0":
+        score_id = create_score_job(
+            session,
+            query=sanitized_query,
+            agent_response=result["agent_response"],
+            routed_agent=result.get("routed_agent", ""),
+            citations=result.get("citations", []),
+            graph_paths=result.get("graph_paths", []),
+            retrieved_context=context,
+        )
+        Thread(
+            target=run_score_job,
+            args=(score_id, sanitized_query, result["agent_response"], context),
+            daemon=True,
+        ).start()
+        result["score_id"] = score_id
+        result["ragas_status"] = "scoring"
+    else:
+        result["score_id"] = None
+        result["ragas_status"] = "skipped_no_context"
     result["ragas_scores"] = {}
-    result["low_faithfulness"] = False
+    result.setdefault("low_faithfulness", False)
     return result
 
 

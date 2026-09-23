@@ -18,6 +18,14 @@ from retrieval.rerank import rerank
 
 _CANDIDATES_PER_SOURCE = 10
 
+# How much a graph-anchored candidate's normalized rerank score is lifted.
+# The cross-encoder scores synthesized passage TEXT, so a structured record
+# that exactly answers the query (a FailureEvent, a clause) can otherwise be
+# out-ranked by a chattier chunk. This lets the graph's topological relevance
+# influence final order instead of being discarded — without letting an
+# irrelevant graph hit leapfrog a clearly-better semantic match.
+_GRAPH_BOOST = 0.15
+
 # ponytail: db.index.vector.queryNodes is deprecated in favor of a newer
 # SEARCH syntax on some Neo4j 5.x builds, but still functions (warning only,
 # not an error) — not worth chasing a moving-target syntax mid-hackathon.
@@ -33,22 +41,54 @@ def _neo4j_vector_search(session, query_vec: list[float], top_k: int) -> list[tu
     return [(r["id"], r["text"]) for r in rows if r["text"]]
 
 
+def _blend_graph_provenance(
+    reranked: list[tuple[str, str, float]],
+    graph_keys: set[str],
+    top_k: int,
+) -> list[tuple[str, str, float]]:
+    """Min-max normalize rerank scores to [0,1] (scale-independent across the
+    local cross-encoder's logits and Cohere's 0..1), add a fixed boost to
+    graph-anchored candidates, then re-sort and truncate to top_k. Returns the
+    blended score so ordering reflects both semantic and topological relevance."""
+    if not reranked:
+        return []
+    scores = [s for _, _, s in reranked]
+    lo, hi = min(scores), max(scores)
+    span = (hi - lo) or 1.0
+    blended = []
+    for key, text, score in reranked:
+        norm = (score - lo) / span
+        if key in graph_keys:
+            norm += _GRAPH_BOOST
+        blended.append((key, text, norm))
+    blended.sort(key=lambda item: item[2], reverse=True)
+    return blended[:top_k]
+
+
 def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]]:
-    query_vec = embed_texts([query])[0]
+    # Dense sources need a query embedding. If embedding is unavailable, degrade
+    # to BM25 + graph rather than fabricating a vector — never silently retrieve
+    # over garbage coordinates.
+    query_vec = None
+    try:
+        query_vec = embed_texts([query])[0]
+    except Exception:
+        pass
 
     candidates: dict[str, str] = {}
 
-    try:
-        for key, text in _neo4j_vector_search(session, query_vec, _CANDIDATES_PER_SOURCE):
-            candidates[key] = text
-    except Exception:
-        pass
+    if query_vec is not None:
+        try:
+            for key, text in _neo4j_vector_search(session, query_vec, _CANDIDATES_PER_SOURCE):
+                candidates[key] = text
+        except Exception:
+            pass
 
-    try:
-        for key, text, _ in qdrant_store.search(query_vec, top_k=_CANDIDATES_PER_SOURCE):
-            candidates[key] = text
-    except Exception:
-        pass
+        try:
+            for key, text, _ in qdrant_store.search(query_vec, top_k=_CANDIDATES_PER_SOURCE):
+                candidates[key] = text
+        except Exception:
+            pass
 
     try:
         for key, text, _ in search_bm25(session, query, top_k=_CANDIDATES_PER_SOURCE):
@@ -58,11 +98,16 @@ def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]
 
     graph_candidates = []
     try:
-        graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE)
+        # depth=2: walk the HAS_PART assembly graph so connected-equipment
+        # evidence (a vessel's relief valve, a pump's drive motor) surfaces —
+        # the multi-hop reasoning a plain-RAG retriever structurally cannot do.
+        graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE, depth=2)
         for key, text in graph_candidates:
             candidates[key] = text
     except Exception:
         pass
+
+    graph_keys = {key for key, _ in graph_candidates}
 
     try:
         known_tags, known_names = load_known_entities(session)
@@ -80,7 +125,11 @@ def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]
     if not candidates:
         return []
 
-    return rerank(query, list(candidates.items()), top_n=top_k)
+    # Score every candidate, then blend in graph provenance before truncating —
+    # so a directly-anchored structured record isn't buried by the reranker
+    # alone (the previous behavior discarded all graph signal at ranking time).
+    reranked = rerank(query, list(candidates.items()), top_n=len(candidates))
+    return _blend_graph_provenance(reranked, graph_keys, top_k)
 
 
 if __name__ == "__main__":

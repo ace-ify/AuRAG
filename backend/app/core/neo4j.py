@@ -9,110 +9,97 @@ logger = logging.getLogger(__name__)
 
 
 class FallbackNeo4jSession:
-    """Resilient fallback session when remote Neo4j Aura sandbox is unreachable or paused."""
+    """Empty, honest fallback used only when Neo4j is unreachable.
+
+    It returns NO rows — it never fabricates plant records (work orders,
+    equipment, clauses). Fabricating domain data on failure is the single most
+    dangerous thing this system could do: it would present invented
+    maintenance/compliance facts as authoritative. Callers detect the outage
+    via ResilientNeo4jSession.degraded and MUST abstain, rather than treat an
+    empty result as an authoritative "nothing found".
+    """
 
     def run(self, query: str, **kwargs):
         class FallbackResult:
             def data(self):
-                if "WorkOrder" in query or "work_order" in query.lower():
-                    wo = {
-                        "id": "WO-2025-03-14",
-                        "type": "Corrective",
-                        "status": "In Review",
-                        "description": "Bearing vibration excursion inspection on pump P-101A",
-                        "recommended_action": "Replace outboard bearing assembly and inspect alignment",
-                        "version": 1,
-                        "created_at": "2026-09-18T10:00:00Z",
-                        "updated_at": "2026-09-18T10:00:00Z",
-                        "date": "2026-09-18",
-                        "source": "predictive_intelligence",
-                        "created_by": "local-operator",
-                    }
-                    return [
-                        {
-                            "work_order": wo,
-                            "equipment": "P-101A",
-                            "predictive_event_id": "EVT-VIB-001",
-                            "decisions": [],
-                            **wo,
-                        }
-                    ]
-                if "Equipment" in query:
-                    return [
-                        {"id": "P-101A", "tag_id": "P-101A", "name": "Crude Charge Pump A", "type": "Centrifugal Pump"},
-                        {"id": "P-101B", "tag_id": "P-101B", "name": "Crude Charge Pump B", "type": "Centrifugal Pump"},
-                        {"id": "PRV-04", "tag_id": "PRV-04", "name": "Pressure Relief Valve 04", "type": "Relief Valve"},
-                        {"id": "E-102", "tag_id": "E-102", "name": "Preheat Exchanger", "type": "Shell and Tube Exchanger"},
-                    ]
-                if "RegulatoryClause" in query or "clause" in query.lower():
-                    return [
-                        {
-                            "id": "FACT-1948-SEC-31",
-                            "text": "Factories Act 1948 Section 31: Pressure plant must be examined periodically.",
-                        }
-                    ]
-                if "count" in query.lower() or "count(" in query.lower():
-                    return [{"total": 1, "count": 1}]
                 return []
 
             def single(self):
-                d = self.data()
-                return d[0] if d else None
+                return None
 
             def values(self, *keys):
-                d = self.data()
-                return [[row.get(k) for k in keys] for row in d]
+                return []
+
+            def __iter__(self):
+                return iter(())
 
         return FallbackResult()
 
+
 class ResilientResult:
-    def __init__(self, real_result, fallback_result):
+    """Wraps a live Neo4j result. If reading it raises, we log, mark the
+    session degraded, and return EMPTY — never fabricated data."""
+
+    def __init__(self, real_result, fallback_result, on_fallback=None):
         self._real = real_result
         self._fallback = fallback_result
+        self._on_fallback = on_fallback
+
+    def _degrade(self, method: str, exc: Exception) -> None:
+        logger.warning("Neo4j result.%s failed (%s); degraded, returning empty.", method, exc)
+        if self._on_fallback is not None:
+            self._on_fallback()
 
     def data(self):
         try:
             return self._real.data()
         except Exception as exc:
-            logger.warning("Neo4j result.data() failed (%s); using fallback.", exc)
+            self._degrade("data()", exc)
             return self._fallback.data()
 
     def single(self):
         try:
             return self._real.single()
         except Exception as exc:
-            logger.warning("Neo4j result.single() failed (%s); using fallback.", exc)
+            self._degrade("single()", exc)
             return self._fallback.single()
 
     def values(self, *keys):
         try:
             return self._real.values(*keys)
         except Exception as exc:
-            logger.warning("Neo4j result.values() failed (%s); using fallback.", exc)
+            self._degrade("values()", exc)
             return self._fallback.values(*keys)
 
     def __iter__(self):
         try:
             return iter(self._real)
         except Exception as exc:
-            logger.warning("Neo4j result iterator failed (%s); using fallback.", exc)
+            self._degrade("__iter__()", exc)
             return iter(self._fallback)
 
 
 class ResilientNeo4jSession:
-    """Wraps a Neo4j session with fallback to FallbackNeo4jSession on query error."""
+    """Wraps a Neo4j session so a graph outage degrades to EMPTY results
+    (never fabricated ones) and is observable via `degraded`."""
 
     def __init__(self, real_session=None):
         self._real_session = real_session
         self._fallback = FallbackNeo4jSession()
+        # No live session at all -> already degraded.
+        self.degraded = real_session is None
+
+    def _mark_degraded(self) -> None:
+        self.degraded = True
 
     def run(self, query: str, **kwargs):
         if self._real_session is not None:
             try:
                 real_res = self._real_session.run(query, **kwargs)
-                return ResilientResult(real_res, self._fallback.run(query, **kwargs))
+                return ResilientResult(real_res, self._fallback.run(query, **kwargs), self._mark_degraded)
             except Exception as exc:
-                logger.warning("Live Neo4j run failed (%s); using fallback mock result.", exc)
+                logger.warning("Live Neo4j run failed (%s); degraded, returning empty.", exc)
+                self._mark_degraded()
         return self._fallback.run(query, **kwargs)
 
     def close(self):
