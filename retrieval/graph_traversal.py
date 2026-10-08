@@ -63,11 +63,11 @@ OPTIONAL MATCH (rc:RegulatoryClause)-[:APPLIES_TO]->(e)
 OPTIONAL MATCH (proc:Procedure)-[:GOVERNS]->(e)
 OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(e)
 RETURN
-  collect(DISTINCT {id: fe.id, date: fe.date, symptom: fe.symptom, root_cause: fe.root_cause}) AS failure_events,
-  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description}) AS work_orders,
-  collect(DISTINCT {id: rc.clause_id, source: rc.source, text: rc.requirement_text}) AS clauses,
-  collect(DISTINCT {id: proc.id, title: proc.title, version: proc.version}) AS procedures,
-  collect(DISTINCT {id: c.id, text: c.text}) AS chunks
+  collect(DISTINCT {id: fe.id, date: fe.date, symptom: fe.symptom, root_cause: fe.root_cause, site: fe.site_id}) AS failure_events,
+  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description, site: wo.site_id}) AS work_orders,
+  collect(DISTINCT {id: rc.clause_id, source: rc.source, text: rc.requirement_text, site: rc.site_id}) AS clauses,
+  collect(DISTINCT {id: proc.id, title: proc.title, version: proc.version, site: proc.site_id}) AS procedures,
+  collect(DISTINCT {id: c.id, text: c.text, site: c.site_id}) AS chunks
 """
 
 # Second hop across the HAS_PART assembly graph (undirected), one row per
@@ -79,10 +79,10 @@ OPTIONAL MATCH (wo:WorkOrder)-[:PERFORMED_ON]->(nbr)
 OPTIONAL MATCH (rc:RegulatoryClause)-[:APPLIES_TO]->(nbr)
 OPTIONAL MATCH (proc:Procedure)-[:GOVERNS]->(nbr)
 RETURN nbr.tag_id AS nbr_tag,
-  collect(DISTINCT {id: fe.id, date: fe.date, symptom: fe.symptom, root_cause: fe.root_cause}) AS failure_events,
-  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description}) AS work_orders,
-  collect(DISTINCT {id: rc.clause_id, source: rc.source, text: rc.requirement_text}) AS clauses,
-  collect(DISTINCT {id: proc.id, title: proc.title, version: proc.version}) AS procedures
+  collect(DISTINCT {id: fe.id, date: fe.date, symptom: fe.symptom, root_cause: fe.root_cause, site: fe.site_id}) AS failure_events,
+  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description, site: wo.site_id}) AS work_orders,
+  collect(DISTINCT {id: rc.clause_id, source: rc.source, text: rc.requirement_text, site: rc.site_id}) AS clauses,
+  collect(DISTINCT {id: proc.id, title: proc.title, version: proc.version, site: proc.site_id}) AS procedures
 """
 
 _PERSON_CYPHER = """
@@ -90,33 +90,43 @@ MATCH (p:Person {name:$name})
 OPTIONAL MATCH (wo:WorkOrder)-[:PERFORMED_BY]->(p)
 OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(p)
 RETURN
-  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description}) AS work_orders,
-  collect(DISTINCT {id: c.id, text: c.text}) AS chunks
+  collect(DISTINCT {id: wo.id, date: wo.date, type: wo.type, status: wo.status, description: wo.description, site: wo.site_id}) AS work_orders,
+  collect(DISTINCT {id: c.id, text: c.text, site: c.site_id}) AS chunks
 """
 
 
-def _add_equipment_1hop(session, tag: str, seen: dict[str, str]) -> None:
+def _site_ok(record: dict, site_id: str | None) -> bool:
+    """Tenant isolation: keep a record when no site filter is requested, or the
+    record is untagged (single-tenant / legacy data), or its site matches the
+    caller's. A record tagged for a DIFFERENT site is never returned."""
+    if site_id is None:
+        return True
+    rec_site = record.get("site")
+    return rec_site is None or rec_site == site_id
+
+
+def _add_equipment_1hop(session, tag: str, seen: dict[str, str], site_id: str | None) -> None:
     row = session.run(_EQUIPMENT_CYPHER, tag=tag).single()
     if not row:
         return
     for fe in row["failure_events"]:
-        if fe["id"]:
+        if fe["id"] and _site_ok(fe, site_id):
             seen.setdefault(fe["id"], _fmt_failure(fe))
     for wo in row["work_orders"]:
-        if wo["id"]:
+        if wo["id"] and _site_ok(wo, site_id):
             seen.setdefault(wo["id"], _fmt_work_order(wo))
     for rc in row["clauses"]:
-        if rc["id"]:
+        if rc["id"] and _site_ok(rc, site_id):
             seen.setdefault(rc["id"], _fmt_clause(rc))
     for proc in row["procedures"]:
-        if proc["id"]:
+        if proc["id"] and _site_ok(proc, site_id):
             seen.setdefault(proc["id"], _fmt_procedure(proc))
     for c in row["chunks"]:
-        if c["id"]:
+        if c["id"] and _site_ok(c, site_id):
             seen.setdefault(c["id"], c["text"])
 
 
-def _add_equipment_2hop(session, tag: str, seen: dict[str, str]) -> None:
+def _add_equipment_2hop(session, tag: str, seen: dict[str, str], site_id: str | None) -> None:
     """HAS_PART assembly neighbours. Records already surfaced 1-hop keep their
     (cleaner) text — setdefault means a 2-hop record only lands if the direct
     hop didn't already carry it."""
@@ -124,46 +134,49 @@ def _add_equipment_2hop(session, tag: str, seen: dict[str, str]) -> None:
         nbr = row.get("nbr_tag")
         via = f" [related to {tag} via HAS_PART→{nbr}]" if nbr else ""
         for fe in row["failure_events"]:
-            if fe["id"]:
+            if fe["id"] and _site_ok(fe, site_id):
                 seen.setdefault(fe["id"], _fmt_failure(fe, via))
         for wo in row["work_orders"]:
-            if wo["id"]:
+            if wo["id"] and _site_ok(wo, site_id):
                 seen.setdefault(wo["id"], _fmt_work_order(wo, via))
         for rc in row["clauses"]:
-            if rc["id"]:
+            if rc["id"] and _site_ok(rc, site_id):
                 seen.setdefault(rc["id"], _fmt_clause(rc, via))
         for proc in row["procedures"]:
-            if proc["id"]:
+            if proc["id"] and _site_ok(proc, site_id):
                 seen.setdefault(proc["id"], _fmt_procedure(proc, via))
 
 
-def traverse(session, query: str, top_k: int = 5, depth: int = 1) -> list[tuple[str, str]]:
+def traverse(session, query: str, top_k: int = 5, depth: int = 1, site_id: str | None = None) -> list[tuple[str, str]]:
     """Returns [(key, text), ...] candidate passages, deduped by key.
 
     depth=1 (default): direct neighbours only — preserves the tuned behaviour
     RCA/Compliance/Lessons-Learned rely on. depth>=2: also walk the HAS_PART
     assembly graph so connected-equipment evidence surfaces (used by the
-    Copilot hybrid path)."""
+    Copilot hybrid path).
+
+    site_id: when set, records tagged for a different site are excluded
+    (tenant isolation). None = no filtering; untagged records always pass."""
     known_tags, known_names = load_known_entities(session)
     tags, names = extract_query_entities(query, known_tags, known_names)
 
     seen: dict[str, str] = {}
 
     for tag in tags:
-        _add_equipment_1hop(session, tag, seen)
+        _add_equipment_1hop(session, tag, seen, site_id)
     if depth >= 2:
         for tag in tags:
-            _add_equipment_2hop(session, tag, seen)
+            _add_equipment_2hop(session, tag, seen, site_id)
 
     for name in names:
         row = session.run(_PERSON_CYPHER, name=name).single()
         if not row:
             continue
         for wo in row["work_orders"]:
-            if wo["id"]:
+            if wo["id"] and _site_ok(wo, site_id):
                 seen.setdefault(wo["id"], _fmt_work_order(wo))
         for c in row["chunks"]:
-            if c["id"]:
+            if c["id"] and _site_ok(c, site_id):
                 seen.setdefault(c["id"], c["text"])
 
     return list(seen.items())[:top_k] if top_k else list(seen.items())

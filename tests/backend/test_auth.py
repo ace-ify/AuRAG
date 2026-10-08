@@ -212,7 +212,7 @@ def test_chat_http_endpoint_auth_enforcement(monkeypatch):
         monkeypatch.setattr(
             chat,
             "answer_query",
-            lambda _session, query, memory_context=None, session_id=None: {
+            lambda _session, query, memory_context=None, session_id=None, site_id=None: {
                 "user_query": query,
                 "routed_agent": "copilot",
                 "agent_response": "Authenticated response.",

@@ -6,7 +6,7 @@ def test_chat_persists_evaluation_metadata_before_starting_async_scoring(monkeyp
     monkeypatch.setattr(
         chat,
         "answer_query",
-        lambda _session, query, memory_context=None, session_id=None: {
+        lambda _session, query, memory_context=None, session_id=None, site_id=None: {
             "user_query": query,
             "intent": "rca",
             "routing_confidence": 0.9,
@@ -62,7 +62,7 @@ def test_chat_recalls_user_memory_without_turning_it_into_citations(monkeypatch)
     monkeypatch.setattr(
         chat,
         "answer_query",
-        lambda _session, query, memory_context=None, session_id=None: {
+        lambda _session, query, memory_context=None, session_id=None, site_id=None: {
             "user_query": query,
             "routed_agent": "copilot",
             "agent_response": "Grounded answer",
@@ -115,7 +115,7 @@ def test_chat_remembers_successful_answer_even_without_ragas_context(monkeypatch
     monkeypatch.setattr(
         chat,
         "answer_query",
-        lambda _session, query, memory_context=None, session_id=None: {
+        lambda _session, query, memory_context=None, session_id=None, site_id=None: {
             "user_query": query,
             "routed_agent": "copilot",
             "agent_response": "No plant evidence was found.",

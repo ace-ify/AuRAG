@@ -43,6 +43,7 @@ def answer_query(
     query: str,
     memory_context: list[str] | None = None,
     session_id: str | None = None,
+    site_id: str | None = None,
 ) -> dict:
     from concurrent.futures import ThreadPoolExecutor, TimeoutError
     from agents.supervisor import answer
@@ -54,6 +55,7 @@ def answer_query(
             score=False,
             memory_context=memory_context or [],
             session_id=session_id,
+            site_id=site_id,
         )
 
     # Render's reverse proxy hard-kills at 30s; we must respond before that.
@@ -135,6 +137,7 @@ def chat(
             sanitized_query,
             memory_context=memories,
             session_id=session_id,
+            site_id=effective_site_id,
         )
     except Exception as exc:
         logger.error("Core answer_query failed (%s); abstaining, no fabricated content.", exc, exc_info=True)

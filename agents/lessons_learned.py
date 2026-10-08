@@ -12,6 +12,7 @@ from agents.util import format_context, format_memory_context, graph_paths
 
 _CYPHER = """
 MATCH (fe:FailureEvent)-[:OCCURRED_ON]->(e:Equipment)
+WHERE $site_id IS NULL OR fe.site_id IS NULL OR fe.site_id = $site_id
 OPTIONAL MATCH (wo:WorkOrder)-[:PERFORMED_ON]->(e)
 RETURN fe.id AS fe_id, fe.symptom AS symptom, fe.root_cause AS root_cause,
        e.tag_id AS tag,
@@ -53,9 +54,9 @@ def _authoritative_work_orders(work_orders: list[dict]) -> list[dict]:
     ]
 
 
-def _gather(session) -> list[tuple[str, str]]:
+def _gather(session, site_id: str | None = None) -> list[tuple[str, str]]:
     seen: dict[str, str] = {}
-    for row in session.run(_CYPHER).data():
+    for row in session.run(_CYPHER, site_id=site_id).data():
         work_orders = _authoritative_work_orders(row["work_orders"])
         seen[row["fe_id"]] = (
             f"{row['fe_id']} on {row['tag']}: {row['symptom']} — root cause: "
@@ -193,8 +194,8 @@ def _deterministic_lessons_finding(
     }
 
 
-def answer(session, query: str, memory_context: list[str] | None = None) -> dict:
-    all_items = _gather(session)
+def answer(session, query: str, memory_context: list[str] | None = None, site_id: str | None = None) -> dict:
+    all_items = _gather(session, site_id=site_id)
     deterministic = _deterministic_lessons_finding(all_items, query)
     if deterministic:
         return {

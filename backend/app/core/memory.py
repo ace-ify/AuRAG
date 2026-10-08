@@ -105,28 +105,34 @@ class MemoryService:
             return False
 
         expires_at = (self._now() + timedelta(days=self.ttl_days)).isoformat()
-        from threading import Thread
 
-        def _bg_remember():
-            try:
-                self.client.add(
-                    messages=[
-                        {"role": "user", "content": query},
-                        {"role": "assistant", "content": answer},
-                    ],
-                    user_id=user_id,
-                    run_id=session_id,
-                    metadata={
-                        "source": "aurag_chat",
-                        "session_id": session_id,
-                        "expires_at": expires_at,
-                    },
-                )
-            except Exception as exc:
-                self._last_error = str(exc)
+        def _write():
+            self.client.add(
+                messages=[
+                    {"role": "user", "content": query},
+                    {"role": "assistant", "content": answer},
+                ],
+                user_id=user_id,
+                run_id=session_id,
+                metadata={
+                    "source": "aurag_chat",
+                    "session_id": session_id,
+                    "expires_at": expires_at,
+                },
+            )
 
-        Thread(target=_bg_remember, daemon=True).start()
-        return True
+        # Bounded, fail-open write (mirrors recall's 2s guard). Returns whether
+        # the write actually succeeded — an honest signal, not an unconditional
+        # True while the write silently failed on a background thread.
+        try:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(_write).result(timeout=2.0)
+            self._last_error = None
+            return True
+        except Exception as exc:
+            self._last_error = str(exc)
+            return False
 
 
     def status(self) -> dict[str, str]:

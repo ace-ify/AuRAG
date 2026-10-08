@@ -65,7 +65,7 @@ def _blend_graph_provenance(
     return blended[:top_k]
 
 
-def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]]:
+def retrieve(session, query: str, top_k: int = 5, site_id: str | None = None) -> list[tuple[str, str, float]]:
     # Dense sources need a query embedding. If embedding is unavailable, degrade
     # to BM25 + graph rather than fabricating a vector — never silently retrieve
     # over garbage coordinates.
@@ -101,7 +101,7 @@ def retrieve(session, query: str, top_k: int = 5) -> list[tuple[str, str, float]
         # depth=2: walk the HAS_PART assembly graph so connected-equipment
         # evidence (a vessel's relief valve, a pump's drive motor) surfaces —
         # the multi-hop reasoning a plain-RAG retriever structurally cannot do.
-        graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE, depth=2)
+        graph_candidates = traverse(session, query, top_k=_CANDIDATES_PER_SOURCE, depth=2, site_id=site_id)
         for key, text in graph_candidates:
             candidates[key] = text
     except Exception:

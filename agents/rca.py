@@ -125,7 +125,7 @@ def _select_rca_context(
     return [(key, by_key[key]) for key in selected_keys]
 
 
-def answer(session, query: str, memory_context: list[str] | None = None) -> dict:
+def answer(session, query: str, memory_context: list[str] | None = None, site_id: str | None = None) -> dict:
     known_tags, known_names = load_known_entities(session)
     tags, names = extract_query_entities(query, known_tags, known_names)
     anchors = [{"type": "Equipment", "id": t} for t in tags] + [{"type": "Person", "id": n} for n in names]
@@ -134,7 +134,7 @@ def answer(session, query: str, memory_context: list[str] | None = None) -> dict
         return {"user_query": query, "agent_response": _NO_ENTITY,
                 "citations": [], "retrieved_context": [], "graph_paths": []}
 
-    items = _select_rca_context(traverse(session, query, top_k=None), query)
+    items = _select_rca_context(traverse(session, query, top_k=None, site_id=site_id), query)
     if not items:
         return {"user_query": query, "agent_response": _NO_HISTORY,
                 "citations": [], "retrieved_context": [], "graph_paths": anchors}

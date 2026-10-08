@@ -340,7 +340,7 @@ def _insufficient_evidence_finding(
     }
 
 
-def answer(session, query: str, memory_context: list[str] | None = None) -> dict:
+def answer(session, query: str, memory_context: list[str] | None = None, site_id: str | None = None) -> dict:
     known_tags, known_names = load_known_entities(session)
     tags, names = extract_query_entities(query, known_tags, known_names)
     anchors = [{"type": "Equipment", "id": t} for t in tags] + [{"type": "Person", "id": n} for n in names]
@@ -350,7 +350,7 @@ def answer(session, query: str, memory_context: list[str] | None = None) -> dict
                 "citations": [], "retrieved_context": [], "graph_paths": []}
 
     items = _select_compliance_context(
-        traverse(session, query, top_k=None),
+        traverse(session, query, top_k=None, site_id=site_id),
         query,
     )
     if not items:

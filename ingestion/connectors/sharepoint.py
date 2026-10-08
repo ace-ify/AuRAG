@@ -1,4 +1,8 @@
-"""Microsoft 365 SharePoint Graph API Document Connector.
+"""Microsoft 365 SharePoint Graph API Document Connector — SIMULATION FIXTURE.
+
+NOTE: serves in-repo fixtures only; no live MS Graph network I/O and
+health_check() is not a real probe. See ingestion/connectors/sap_pm.py for the
+connector wired to real OData I/O.
 
 Synchronizes standard operating procedures (SOPs), maintenance manuals,
 and engineering guidelines with delta-cursor and version supersession support.

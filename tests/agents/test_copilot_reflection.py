@@ -9,7 +9,7 @@ class _Retrieve:
         self.script = script  # list of per-call results: [(key, text, score), ...]
         self.top_ks = []
 
-    def __call__(self, _session, _query, top_k=5):
+    def __call__(self, _session, _query, top_k=5, site_id=None):
         self.top_ks.append(top_k)
         return self.script[min(len(self.top_ks) - 1, len(self.script) - 1)]
 
@@ -79,7 +79,7 @@ def test_engine_env_routes_to_tool_calling_agent(monkeypatch):
     monkeypatch.setenv("COPILOT_ENGINE", "tools")
     monkeypatch.setattr(
         copilot, "answer_agentic",
-        lambda session, query, memory_context=None: {"routed": "agentic", "q": query},
+        lambda session, query, memory_context=None, site_id=None: {"routed": "agentic", "q": query},
     )
     assert copilot.answer(object(), "hello")["routed"] == "agentic"
 

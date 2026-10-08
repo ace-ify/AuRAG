@@ -30,13 +30,18 @@ from backend.app.api import (
     health,
     ingestion,
     knowledge_risk,
+    metrics,
     telemetry,
     work_orders,
 )
 from backend.app.db.database import init_db
+from backend.app.core.auth import assert_secure_config
 
 # Initialize relational tables
 init_db()
+
+# Refuse to boot a production deployment with authentication disabled.
+assert_secure_config()
 
 app = FastAPI(title="AuRAG Operator Console API")
 
@@ -60,6 +65,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Baseline hardening headers on every response (STRIDE info-disclosure /
+    clickjacking mitigations that the threat model claimed but never shipped)."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+    )
+    return response
 
 
 
@@ -120,6 +139,7 @@ app.include_router(work_orders.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 app.include_router(connectors.router, prefix="/api")
 app.include_router(automations.router, prefix="/api")
+app.include_router(metrics.router, prefix="/api")
 
 
 # On Render free tier (512MB RAM), pre-warming torch and sentence_transformers

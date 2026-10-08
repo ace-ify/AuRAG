@@ -46,6 +46,7 @@ def build_graph(session, score: bool = True):
                 session,
                 state["user_query"],
                 memory_context=state.get("memory_context") or [],
+                site_id=state.get("site_id") or None,
             )
             result["routed_agent"] = name
             return result
@@ -116,6 +117,7 @@ def answer(
     score: bool = True,
     memory_context: list[str] | None = None,
     session_id: str | None = None,
+    site_id: str | None = None,
 ) -> dict:
     graph = build_graph(session, score=score)
     result = graph.invoke(
@@ -123,6 +125,7 @@ def answer(
             "user_query": query,
             "memory_context": memory_context or [],
             "session_id": session_id or "",
+            "site_id": site_id or "",
         }
     )
     if not score:

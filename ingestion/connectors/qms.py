@@ -1,4 +1,8 @@
-"""Quality Management System (QMS) and Regulatory Compliance Connector.
+"""Quality Management System (QMS) and Regulatory Compliance Connector — SIMULATION FIXTURE.
+
+NOTE: serves in-repo fixtures only; no live QMS network I/O and health_check()
+is not a real probe. See ingestion/connectors/sap_pm.py for the connector wired
+to real OData I/O.
 
 Synchronizes statutory regulatory clauses (Factories Act, OISD, PESO, ISO 45001),
 internal audit findings, and Non-Conformance Reports (NCRs).

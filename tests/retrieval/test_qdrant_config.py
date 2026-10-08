@@ -14,7 +14,9 @@ def test_qdrant_client_receives_optional_api_key(monkeypatch):
 
     qdrant_store.get_client()
 
-    assert calls == {
-        "url": "https://qdrant.example",
-        "api_key": "secret",
-    }
+    # url + api_key must be forwarded; a bounded timeout is a deliberate
+    # reliability guard (don't let a hung Qdrant block retrieval), so assert the
+    # invariants rather than brittle exact-equality that would forbid it.
+    assert calls["url"] == "https://qdrant.example"
+    assert calls["api_key"] == "secret"
+    assert 0 < calls["timeout"] <= 10

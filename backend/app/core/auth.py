@@ -82,6 +82,21 @@ def is_auth_enabled() -> bool:
     return _get_env_bool("AUTH_ENABLED", default=False)
 
 
+def _is_production() -> bool:
+    return os.environ.get("APP_ENV", "").strip().lower() in ("production", "prod")
+
+
+def assert_secure_config() -> None:
+    """Fail fast rather than boot an unauthenticated production deployment.
+    In production, disabled auth means identity/roles come from spoofable
+    X-User-* headers (see get_current_user) — a full RBAC bypass."""
+    if _is_production() and not is_auth_enabled():
+        raise RuntimeError(
+            "Refusing to start: APP_ENV=production requires AUTH_ENABLED=true "
+            "(auth-disabled mode trusts client headers for identity and roles)."
+        )
+
+
 def get_tenant_id() -> str:
     return os.environ.get("ENTRA_TENANT_ID", "common")
 
@@ -125,9 +140,10 @@ def fetch_jwks() -> dict:
 
 def verify_entra_token(token: str) -> dict:
     """Verify an Entra ID OIDC token against cached JWKS and return claims."""
-    # Check for test / mock tokens in test/dev environment
+    # Check for test / mock tokens in test/dev environment. Never honored in
+    # production (a shared HS256 secret there would let anyone forge any user).
     mock_secret = os.environ.get("TEST_JWT_SECRET")
-    if mock_secret:
+    if mock_secret and not _is_production():
         try:
             return jwt.decode(
                 token,
@@ -209,14 +225,17 @@ def claims_to_user_profile(claims: dict, request: Request | None = None) -> User
     if not roles:
         roles = [AppRole.PlantOperator.value]
 
-    # Tenancy & Site attributes
+    # Tenancy & Site attributes. Client headers are only trusted as a fallback
+    # in dev (auth disabled); when auth is enabled, site/org come solely from
+    # the verified token so a caller can't cross tenants via an X-Site-ID header.
+    allow_header_ctx = not is_auth_enabled()
     site_id = claims.get("site_id")
-    if not site_id and request:
+    if not site_id and request and allow_header_ctx:
         site_id = request.headers.get("X-Site-ID")
     site_id = site_id or "plant-mumbai-01"
 
     org_id = claims.get("organization_id")
-    if not org_id and request:
+    if not org_id and request and allow_header_ctx:
         org_id = request.headers.get("X-Organization-ID")
     org_id = org_id or "aurag-industrial"
 

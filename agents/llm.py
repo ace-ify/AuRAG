@@ -57,7 +57,13 @@ def get_gemini_client():
 def _call_groq_json(system_prompt: str, user_prompt: str, model: str) -> dict:
     """Shared Groq JSON-mode call + one retry-on-429, factored out so both
     ask_json() (citation-bearing agent answers) and classify_intent() (routing)
-    share the same client/retry mechanics instead of duplicating them."""
+    share the same client/retry mechanics instead of duplicating them.
+
+    Records real latency + token usage to telemetry.llm_metrics — this is the
+    live production path, so this is where observability has to live (the
+    enterprise gateway is bypassed here)."""
+    from telemetry.llm_metrics import record_llm_call
+
     client = get_client()
     kwargs = dict(
         model=model,
@@ -67,22 +73,39 @@ def _call_groq_json(system_prompt: str, user_prompt: str, model: str) -> dict:
         ],
         response_format={"type": "json_object"},
     )
+    start = time.perf_counter()
+    ok = True
+    response = None
     try:
-        response = client.chat.completions.create(**kwargs)
-    except RateLimitError:
-        # ponytail: one fixed-delay retry, not a backoff framework — Groq's
-        # free-tier RPM window is short enough that a second 429 in a row
-        # inside a single agent call is unlikely
-        time.sleep(5)
-        response = client.chat.completions.create(**kwargs)
-    except BadRequestError:
-        # Groq's JSON-mode validation itself sometimes rejects the model's
-        # own output (code json_validate_failed — e.g. an unterminated
-        # string) before it ever reaches our json.loads() below. One retry,
-        # same shape as the RateLimitError case above — a persistent bad
-        # request just fails identically on retry and raises, so this can't
-        # loop.
-        response = client.chat.completions.create(**kwargs)
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except RateLimitError:
+            # ponytail: one fixed-delay retry, not a backoff framework — Groq's
+            # free-tier RPM window is short enough that a second 429 in a row
+            # inside a single agent call is unlikely
+            time.sleep(5)
+            response = client.chat.completions.create(**kwargs)
+        except BadRequestError:
+            # Groq's JSON-mode validation itself sometimes rejects the model's
+            # own output (code json_validate_failed — e.g. an unterminated
+            # string) before it ever reaches our json.loads() below. One retry,
+            # same shape as the RateLimitError case above — a persistent bad
+            # request just fails identically on retry and raises, so this can't
+            # loop.
+            response = client.chat.completions.create(**kwargs)
+    except Exception:
+        ok = False
+        raise
+    finally:
+        latency_ms = (time.perf_counter() - start) * 1000
+        usage = getattr(response, "usage", None)
+        record_llm_call(
+            model,
+            latency_ms,
+            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            ok=ok,
+        )
 
     return json.loads(response.choices[0].message.content)
 

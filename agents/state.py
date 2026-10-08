@@ -21,6 +21,7 @@ class AgentState(TypedDict, total=False):
     ragas_detail: str  # provider/scoring error detail when ragas_status == "error"
     low_faithfulness: bool  # split out of ragas_scores since it's not numeric; only meaningful when ragas_status == "scored"
     session_id: str
+    site_id: str  # caller's tenant/plant scope, threaded into retrieval for isolation
     memory_context: list[str]
     messages: list[dict[str, Any]]
     reflections: int  # self-correction retries the agent performed (Copilot's plan-act-observe loop)

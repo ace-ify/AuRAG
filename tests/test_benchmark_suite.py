@@ -51,9 +51,12 @@ def test_benchmark_category_distribution():
 
 
 def test_benchmark_execution_runner():
-    """Verify that the benchmark runner executes all 52 cases and achieves >= 95% routing pass rate."""
+    """Offline mode validates suite composition but does NOT fabricate accuracy.
+    (The runner previously set predicted=expected and reported ~100%, which
+    measured nothing; that tautology is gone.)"""
     result = run_benchmark(mode="offline")
     assert result["total"] >= 50
-    assert result["passed"] >= 50
-    assert result["accuracy"] >= 95.0
+    assert result["mode"] == "offline"
+    assert result["passed"] is None      # no model ran offline
+    assert result["accuracy"] is None    # no fabricated pass rate
     assert result["execution_time_s"] < 2.0

@@ -72,17 +72,17 @@ def _abstain(query: str, attempt: int) -> dict:
     }
 
 
-def answer(session, query: str, memory_context: list[str] | None = None, *, max_reflections: int = 1) -> dict:
+def answer(session, query: str, memory_context: list[str] | None = None, *, max_reflections: int = 1, site_id: str | None = None) -> dict:
     # Engine select: the native tool-calling agent (model decides what to fetch)
     # or the default reflection loop (fixed retrieve, self-correct on grounding).
     if os.environ.get("COPILOT_ENGINE", "reflection").lower() == "tools":
-        return answer_agentic(session, query, memory_context)
+        return answer_agentic(session, query, memory_context, site_id=site_id)
 
     best: dict | None = None
     top_k = _INITIAL_TOP_K
 
     for attempt in range(max_reflections + 1):
-        context = retrieve(session, query, top_k=top_k)
+        context = retrieve(session, query, top_k=top_k, site_id=site_id)
         items = [(key, text) for key, text, _ in context]
 
         if not items:
@@ -109,7 +109,7 @@ def answer(session, query: str, memory_context: list[str] | None = None, *, max_
     return best
 
 
-def answer_agentic(session, query: str, memory_context: list[str] | None = None) -> dict:
+def answer_agentic(session, query: str, memory_context: list[str] | None = None, site_id: str | None = None) -> dict:
     """Native tool-calling variant: the model plans and calls retrieval tools
     itself (see agents/agent_loop.py), rather than running a fixed pipeline."""
     from agents.agent_loop import _SYSTEM, build_executors, run_tool_loop
@@ -122,7 +122,7 @@ def answer_agentic(session, query: str, memory_context: list[str] | None = None)
             "(do not cite it or treat it as plant evidence):\n" + memory_note
         )
 
-    result = run_tool_loop(_SYSTEM, user, build_executors(session))
+    result = run_tool_loop(_SYSTEM, user, build_executors(session, site_id=site_id))
     return {
         "user_query": query,
         "agent_response": result["answer"],

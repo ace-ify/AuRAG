@@ -49,8 +49,35 @@ def run_benchmark(mode: str = "offline", limit: int | None = None):
     passed = 0
     total = len(cases)
     results = []
+    errors = 0
 
     start_time = time.time()
+
+    if mode == "offline":
+        # Offline cannot measure classification accuracy — there is no model in
+        # the loop. Report only the suite composition; NEVER fabricate a pass
+        # rate (the old code set predicted=expected and reported 100%, which
+        # measured nothing). Use --mode online for real accuracy.
+        for case in cases:
+            results.append({
+                "id": case["id"],
+                "category": case["category"],
+                "predicted": None,
+                "pass": None,
+            })
+        total_time = time.time() - start_time
+        print("Offline mode: suite structure only — no model run, accuracy NOT measured.")
+        print(f"Validated {total} cases across {len([c for c in categories.values() if c])} categories.")
+        print("Run with --mode online to measure real intent-classification accuracy.")
+        print("=" * 78)
+        return {
+            "total": total,
+            "passed": None,
+            "accuracy": None,
+            "mode": "offline",
+            "execution_time_s": total_time,
+            "category_breakdown": categories,
+        }
 
     for idx, case in enumerate(cases, 1):
         cid = case["id"]
@@ -59,20 +86,21 @@ def run_benchmark(mode: str = "offline", limit: int | None = None):
         acceptable_intents = case.get("acceptable_intents", [expected_cat])
         eq_tag = case.get("equipment_tag", "")
 
-        predicted_intent = expected_cat
-        confidence = 0.95
+        # Online: run the real classifier. An error is an ERROR, not a silent
+        # pass — never fall back to predicted=expected.
+        try:
+            from agents.llm import classify_intent
+            res = classify_intent(query)
+            predicted_intent = res.get("intent", "copilot")
+            confidence = res.get("confidence", 0.0)
+            errored = False
+        except Exception as exc:
+            predicted_intent = None
+            confidence = 0.0
+            errored = True
+            errors += 1
 
-        if mode == "online":
-            try:
-                from agents.llm import classify_intent
-                res = classify_intent(query)
-                predicted_intent = res.get("intent", "copilot")
-                confidence = res.get("confidence", 0.0)
-            except Exception as exc:
-                predicted_intent = expected_cat
-                confidence = 0.85
-
-        is_match = predicted_intent in acceptable_intents
+        is_match = (not errored) and predicted_intent in acceptable_intents
         if is_match:
             passed += 1
 
@@ -83,23 +111,27 @@ def run_benchmark(mode: str = "offline", limit: int | None = None):
             "confidence": confidence,
             "equipment": eq_tag,
             "pass": is_match,
+            "error": errored,
         })
 
-        status = "PASS" if is_match else "FAIL"
+        status = "ERROR" if errored else ("PASS" if is_match else "FAIL")
         if idx <= 10 or idx % 10 == 0 or not is_match:
-            print(f"[{idx:02d}/52] {cid:<12} | {expected_cat:<16} -> {predicted_intent:<16} | Conf: {confidence:.2f} | {status}")
+            shown = predicted_intent if predicted_intent is not None else "<error>"
+            print(f"[{idx:02d}/52] {cid:<12} | {expected_cat:<16} -> {shown:<16} | Conf: {confidence:.2f} | {status}")
 
     total_time = time.time() - start_time
     accuracy = (passed / total) * 100 if total else 0.0
 
     print("-" * 78)
-    print(f"Summary: {passed}/{total} Passed ({accuracy:.1f}%) in {total_time:.2f}s")
+    print(f"Summary: {passed}/{total} Passed ({accuracy:.1f}%), {errors} errors in {total_time:.2f}s")
     print("=" * 78)
 
     return {
         "total": total,
         "passed": passed,
         "accuracy": accuracy,
+        "errors": errors,
+        "mode": "online",
         "execution_time_s": total_time,
         "category_breakdown": categories,
     }

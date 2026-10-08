@@ -163,17 +163,18 @@ def run_tool_loop(system, user, executors, *, client=None, model=None, max_iters
     }
 
 
-def build_executors(session) -> dict:
-    """Bind the retrieval tools to a live session. Imported lazily so importing
-    this module doesn't drag in the embedding/Qdrant stack."""
+def build_executors(session, site_id: str | None = None) -> dict:
+    """Bind the retrieval tools to a live session (and optional tenant scope).
+    Imported lazily so importing this module doesn't drag in the
+    embedding/Qdrant stack."""
     from retrieval.hybrid import retrieve
     from retrieval.graph_traversal import traverse
 
     def search_knowledge_base(query: str):
-        return [(key, text) for key, text, _ in retrieve(session, query, top_k=5)]
+        return [(key, text) for key, text, _ in retrieve(session, query, top_k=5, site_id=site_id)]
 
     def get_equipment_graph(equipment_tag: str):
-        return traverse(session, equipment_tag, top_k=10, depth=2)
+        return traverse(session, equipment_tag, top_k=10, depth=2, site_id=site_id)
 
     return {
         "search_knowledge_base": search_knowledge_base,

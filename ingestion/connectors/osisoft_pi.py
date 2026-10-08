@@ -1,4 +1,9 @@
-"""OSIsoft PI Historian Web API Connector.
+"""OSIsoft PI Historian Web API Connector — SIMULATION FIXTURE.
+
+NOTE: this connector serves in-repo fixtures only; it performs no live PI Web
+API network I/O and health_check() is not a real probe. See
+ingestion/connectors/sap_pm.py for the connector wired to real OData I/O and
+the ODataClient pattern to follow when making this one live.
 
 Ingests high-frequency process telemetry and computes rolling statistics
 (mean, peak, standard deviation, anomaly status) for equipment condition monitoring.
